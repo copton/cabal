@@ -85,6 +85,7 @@ executable cabal
         Distribution.Client.InstallSymlink
         Distribution.Client.JobControl
         Distribution.Client.List
+        Distribution.Client.Manifest
         Distribution.Client.PackageIndex
         Distribution.Client.PackageUtils
         Distribution.Client.ParseUtils
