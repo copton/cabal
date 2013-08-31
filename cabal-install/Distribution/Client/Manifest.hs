@@ -33,7 +33,7 @@ import Distribution.Text
 import System.Directory
          ( getDirectoryContents, doesDirectoryExist )
 import System.FilePath
-         ( (</>) )
+         ( (</>), splitPath, joinDrive )
 import Text.PrettyPrint
          ( empty )
 
@@ -42,6 +42,12 @@ data Manifest = Manifest
   { libraryId :: Maybe InstalledPackageId  -- ^ If the cabal package contains a library, this is that library's ID
   , manifestFiles :: [FilePath]  -- ^ The list of files copied to the file system when installing the package
   }
+
+-- | Depending on the operating system and cabal file paths inside the destdir are subject to the following convention:
+data PathConvention
+  = Unix                 -- ^ replace destdir with '/' to get the install path of a file
+  | OldWindows FilePath  -- ^ replace destdir with the given drive to geht the install path of a file
+  | NewWindows           -- ^ the first directory hierachy under destdir encodes the install drive for each file
 
 -- | Write a manifest to disk.
 writeManifest :: Manifest -> FilePath -> IO ()
@@ -63,21 +69,38 @@ readManifest file = do
 tryReadManifest :: FilePath -> IO (ParseResult Manifest)
 tryReadManifest file = readFile file >>= return . parseManifest
 
--- | Recursively collect all files within a directory.
--- The returned file paths are relative to the given root.
-scanDirectory :: FilePath -> IO [FilePath]
-scanDirectory root = scan ""
+-- | Scan a destdir and return absolute install paths for each file.
+scanDirectory :: PathConvention -> FilePath -> IO [FilePath]
+scanDirectory convention root = scan ""
   where
     scan relative = do
       let absolute = root </> relative
       isDirectory <- doesDirectoryExist absolute
       if isDirectory
-        then getDirectoryContents' absolute >>= mapM (scan . (relative </>)) >>= return . concat
-        else return [relative]
+        then     getDirectoryContents' absolute
+             >>= mapM (scan . (relative </>))
+             >>= return . concat
+        else return [installPath convention relative]
 
     getDirectoryContents' absolute = do
       contents <- getDirectoryContents absolute
       return $ filter (\p -> p /= "." && p /= "..") contents
+
+-- | Turn a relative path to an absolute install path.
+installPath
+  :: PathConvention
+  -> FilePath  -- ^ relative path within the destdir directory; subject to path convention
+  -> FilePath  -- ^ absolute path; correct for the respective operating system
+installPath Unix relative = "/" </> relative
+installPath (OldWindows drive) relative = joinDrive drive relative
+installPath NewWindows relative =
+  let
+    (driveComponent:pathComponents) = splitPath relative
+    (driveLetter:_) = driveComponent
+    drive = driveLetter : ":\\"
+  in
+    joinDrive drive (concat pathComponents)
+
 
 -- | The actual manifest parser.
 parseManifest :: String -> ParseResult Manifest
